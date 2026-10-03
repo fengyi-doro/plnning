@@ -1,0 +1,279 @@
+{
+  "name": "跑团本地知识库 · 文档导入",
+  "nodes": [
+    {
+      "id": "7ee2d4c8-8e58-434c-bc33-d487c5602609",
+      "name": "手动导入知识库",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "1ac6d6c7-6899-4d6b-ad01-d64285c9f1aa",
+      "name": "文档配置",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        272,
+        128
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "docs",
+              "name": "documents",
+              "type": "array",
+              "value": [
+                {
+                  "id": "rules-01",
+                  "title": "轻量d20房规：角色创建",
+                  "text": "本跑团采用自定义轻量奇幻d20房规，不代表官方D&D或CoC规则。角色初始体力10。力量、敏捷、意志三项属性分配+2、+1、0修正。角色卡记录姓名、背景、属性、体力和装备。",
+                  "pointId": 1
+                },
+                {
+                  "id": "rules-02",
+                  "title": "轻量d20房规：检定与难度",
+                  "text": "普通行动检定采用1d20加对应属性修正，总和大于或等于难度为成功。简单、普通、困难的难度分别为10、15、20。主持人应在掷骰前公布骰子公式、难度与成败后果；有明显代价、战斗或不可逆后果时等待玩家确认。",
+                  "pointId": 2
+                },
+                {
+                  "id": "rules-03",
+                  "title": "轻量d20房规：真实掷骰",
+                  "text": "所有随机掷骰必须调用roll_dice工具，不能编造结果、重掷或修改骰点。工具接受1d20、2d6+3、1d100等表达式。展示每颗骰子点数、修正、总和及判定结论。玩家明确提出/掷骰命令时立即掷骰。",
+                  "pointId": 3
+                },
+                {
+                  "id": "rules-04",
+                  "title": "轻量d20房规：主持与剧情",
+                  "text": "玩家决定自己的角色行动。主持人描述场景、NPC和行动后果，提供2至4个可选行动并允许自由行动。失败也应推进剧情。玩家尚未发现的秘密不提前透露。资料没有的规则需说明是临时房规并与玩家确认。",
+                  "pointId": 4
+                },
+                {
+                  "id": "rules-05",
+                  "title": "轻量d20房规：状态与文本存档",
+                  "text": "/状态展示已确认的角色体力、装备、目标、场景和已知线索。/存档输出可复制文本，包含世界、规则、角色、属性、装备、NPC、线索、任务与当前场景。/读档接收玩家粘贴的文本继续游戏。会话记忆仅最近30轮，服务重启可能丢失。文本存档需要玩家自己保存。",
+                  "pointId": 5
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ad6c0641-cf5d-40d4-8aaa-dcb153f460a6",
+      "name": "校验文档片段",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        128
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const docs=$input.first().json.documents;\nif(!Array.isArray(docs)||docs.length<1||docs.length>10)throw new Error('每批必须包含1至10条文档片段');\nconst ids=new Set();\nfor(const d of docs){if(!Number.isSafeInteger(d.pointId)||d.pointId<1||ids.has(d.pointId))throw new Error('pointId必须是唯一正整数');ids.add(d.pointId);if(typeof d.id!=='string'||!d.id||typeof d.title!=='string'||typeof d.text!=='string'||!d.text.trim()||d.text.length>1500)throw new Error('片段需id、title、非空text，text最多1500字符');}\nreturn [{json:{documents:docs,input:docs.map(d=>d.title+'\\n'+d.text)}}];"
+      }
+    },
+    {
+      "id": "d84ca416-d70b-4332-aea1-9ab579a2744a",
+      "name": "阿里云 HTTP 文档向量化",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        128
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "alibabaCloudApi",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({model:'text-embedding-v4',input:$json.input,dimensions:1024,encoding_format:'float'}) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "c39db84c-943d-4143-b4cf-f55d7373f0c7",
+      "name": "构建知识库记录",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        128
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const docs=$('校验文档片段').first().json.documents;\nconst rows=$input.first().json.data;\nif(!Array.isArray(rows)||rows.length!==docs.length)throw new Error('向量返回数量不匹配，未写入数据库');\nconst vectors=new Map(rows.map(r=>[r.index,r.embedding]));\nconst points=docs.map((d,i)=>{const v=vectors.get(i);if(!Array.isArray(v)||v.length!==1024||v.some(x=>!Number.isFinite(x)))throw new Error('向量格式无效，未写入数据库');return {id:d.pointId,vector:v,payload:{sourceId:d.id,title:d.title,text:d.text,embeddingModel:'text-embedding-v4',updatedAt:new Date().toISOString()}};});\nreturn [{json:{points}}];"
+      }
+    },
+    {
+      "id": "e8213063-b59e-4266-89b0-7e4606f38aef",
+      "name": "HTTP 写入本地 Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1168,
+        128
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "http://qdrant:6333/collections/trpg_rules/points?wait=true",
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({points:$json.points}) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "542dc677-6b08-4924-91ed-50e9b3ddd0a9",
+      "name": "导入完成",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1392,
+        128
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "out",
+              "name": "output",
+              "type": "string",
+              "value": "=已写入本地知识库：{{ $('校验文档片段').first().json.documents.length }}条片段。相同pointId更新原片段；旧片段不会自动删除。"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "7821f7fc-0e73-41d9-9059-56da5ef5cb4a",
+      "name": "Sticky Note b66aa17c",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        624,
+        128
+      ],
+      "parameters": {
+        "content": "## 本地知识库导入\n修改「文档配置」中的documents，再点击Execute workflow。每条记录需要pointId（唯一正整数）、id（来源编号）、title、text（正文不超过1500字），每批1至10条。长文请先按段拆分。\n相同pointId更新，新的pointId追加；从配置移除不会删除数据库中的旧片段。\n阿里云text-embedding-v4生成1024维向量，Qdrant持久化存储正文和向量。聊天由另一个千问RAG工作流处理。\n内置5条自定义轻量d20入门房规，不代表官方商业规则书。",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "手动导入知识库": {
+      "main": [
+        [
+          {
+            "node": "文档配置",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "文档配置": {
+      "main": [
+        [
+          {
+            "node": "校验文档片段",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "校验文档片段": {
+      "main": [
+        [
+          {
+            "node": "阿里云 HTTP 文档向量化",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "阿里云 HTTP 文档向量化": {
+      "main": [
+        [
+          {
+            "node": "构建知识库记录",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "构建知识库记录": {
+      "main": [
+        [
+          {
+            "node": "HTTP 写入本地 Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP 写入本地 Qdrant": {
+      "main": [
+        [
+          {
+            "node": "导入完成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "nodeGroups": [
+    {
+      "id": "df4794da-06ad-4f8d-83cf-483d7d344d6c",
+      "name": "知识库导入",
+      "nodeNames": [
+        "文档配置",
+        "校验文档片段",
+        "阿里云 HTTP 文档向量化",
+        "构建知识库记录",
+        "HTTP 写入本地 Qdrant",
+        "导入完成"
+      ],
+      "description": "校验1至10条文档片段，阿里云生成向量后按pointId写入本地持久化知识库"
+    }
+  ]
+}

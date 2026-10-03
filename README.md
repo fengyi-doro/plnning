@@ -1,4 +1,14 @@
-# AI 跑团主持 · DeepSeek
+# AI 跑团工作流
+
+提供 DeepSeek 跑团与「本地 Qdrant 知识库 + 阿里云向量模型 + 千问3.7 Flash」RAG 跑团两种方案。
+
+## 千问 RAG 跑团
+
+[部署、导入与使用说明](README_RAG.md) · [聊天工作流](workflows/trpg-qwen-local-rag.json) · [文档导入工作流](workflows/trpg-local-kb-ingest.json)
+
+本地知识库持久化保存资料，阿里云生成向量，千问根据检索结果回答并引用来源。包含 Docker Compose 配置、集合初始化脚本和5条入门房规。API Key 需在自己的 n8n 凭据中配置。
+
+## AI 跑团主持 · DeepSeek
 
 可导入 n8n 的中文 TRPG 跑团工作流。玩家通过聊天创建角色、探索场景，与 NPC 互动；AI 主持通过骰子工具进行随机判定。
 
